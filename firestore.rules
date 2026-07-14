@@ -4,25 +4,24 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
 
-    match /records/{recordId} {
+    match /run_bolt/{recordId} {
       allow read: if true;
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['runDate', 'location', 'distance', 'duration', 'memo', 'authorId', 'authorName', 'createdAt'])
+        && request.resource.data.keys().hasOnly([
+          'date', 'distance', 'duration', 'memo',
+          'authorId', 'authorName', 'authorPhoto', 'createdAt'
+        ])
         && request.resource.data.authorId == request.auth.uid
-        && request.resource.data.runDate is string
-        && request.resource.data.runDate.size() == 10
-        && request.resource.data.location is string
-        && request.resource.data.location.size() > 0
-        && request.resource.data.location.size() <= 60
+        && request.resource.data.date is string
+        && request.resource.data.date.size() == 10
         && request.resource.data.distance is number
         && request.resource.data.distance > 0
-        && request.resource.data.distance <= 1000
         && request.resource.data.duration is number
         && request.resource.data.duration >= 1
-        && request.resource.data.duration <= 10000
         && request.resource.data.memo is string
-        && request.resource.data.memo.size() <= 300;
-      allow update, delete: if false;
+        && request.resource.data.memo.size() <= 200;
+      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+      allow update: if false;
 
       match /sparks/{userId} {
         allow read: if true;
