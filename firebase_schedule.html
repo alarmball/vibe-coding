@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 Firestore 시간표</title>
+    <!-- Tailwind CSS CDN (깔끔하고 현대적인 UI용) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #fefcf0; /* 따뜻하고 편안한 연노란색 배경 */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 max-w-6xl mx-auto">
+
+    <header class="text-center mb-8">
+        <h1 class="text-3xl font-bold text-slate-800">📅 나의 실시간 시간표</h1>
+        <p class="text-slate-500 mt-2 text-sm">Firestore와 실시간으로 동기화되는 깔끔한 단일 페이지 시간표</p>
+    </header>
+
+    <!-- 메인 레이아웃: 입력 폼 & 시간표 출력 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- 왼쪽: 수업 추가 폼 -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-amber-100 h-fit">
+            <h2 class="text-xl font-bold text-slate-700 mb-4 flex items-plus">✨ 새 수업 추가</h2>
+            
+            <form id="schedule-form" class="space-y-4">
+                <!-- 요일 선택 -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">요일 *</label>
+                    <select id="day" required class="w-full p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                        <option value="월">월요일</option>
+                        <option value="화">화요일</option>
+                        <option value="수">수요일</option>
+                        <option value="목">목요일</option>
+                        <option value="금">금요일</option>
+                    </select>
+                </div>
+
+                <!-- 시간 설정 -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-600 mb-1">시작 시간 *</label>
+                        <input type="time" id="startTime" required class="w-full p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-600 mb-1">종료 시간 *</label>
+                        <input type="time" id="endTime" required class="w-full p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    </div>
+                </div>
+
+                <!-- 과목명 -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">과목명 *</label>
+                    <input type="text" id="subject" required placeholder="예: 데이터베이스" class="w-full p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                </div>
+
+                <div class="border-t border-dashed border-slate-100 my-4 pt-3">
+                    <span class="text-xs text-slate-400 font-medium">💡 아래는 선택 입력 사항입니다 (NoSQL 유연 스키마)</span>
+                </div>
+
+                <!-- 교수명 -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">교수명</label>
+                    <input type="text" id="professor" placeholder="예: 홍길동 교수님" class="w-full p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                </div>
+
+                <!-- 줌 링크 -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">줌 링크 (Zoom)</label>
+                    <input type="url" id="zoomLink" placeholder="https://zoom.us/..." class="w-full p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                </div>
+
+                <!-- 장소 -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">장소 / 강의실</label>
+                    <input type="text" id="location" placeholder="예: 공학관 402호" class="w-full p-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                </div>
+
+                <button type="submit" class="w-full bg-amber-400 hover:bg-amber-500 text-slate-800 font-bold py-3 px-4 rounded-lg transition duration-150 shadow-sm">
+                    수업 등록하기
+                </button>
+            </form>
+        </div>
+
+        <!-- 오른쪽: 요일별 시간표 보드 (2칸 차지) -->
+        <div class="lg:col-span-2 space-y-6">
+            <h2 class="text-xl font-bold text-slate-700 flex items-center">📅 요일별 수업 목록</h2>
+            
+            <div id="timetable-board" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <!-- 월 ~ 금 요일별 섹션이 여기에 동적으로 렌더링됩니다 -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDK 로드 (v10 이상 Modular CDN 방식) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            deleteDoc, 
+            doc, 
+            onSnapshot 
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // [설정] 본인의 Firebase 설정을 아래에 입력하세요.
+        const firebaseConfig = {
+                  apiKey: "AIzaSyB13nMtW5AttNKLytoaYRZK9M3yQZvc3bQ",
+                authDomain: "vibe-coding-d481f.firebaseapp.com",
+                projectId: "vibe-coding-d481f",
+    };
+
+        // Firebase 초기화
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const scheduleCol = collection(db, "schedules");
+
+        // DOM 요소 획득
+        const form = document.getElementById("schedule-form");
+        const board = document.getElementById("timetable-board");
+
+        // 월~금 요일 리스트 고정 정의
+        const DAYS = ["월", "화", "수", "목", "금"];
+
+        // 1. 수업 추가 처리 (NoSQL 데이터 모델 구축)
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const day = document.getElementById("day").value;
+            const startTime = document.getElementById("startTime").value;
+            const endTime = document.getElementById("endTime").value;
+            const subject = document.getElementById("subject").value.trim();
+            
+            const professor = document.getElementById("professor").value.trim();
+            const zoomLink = document.getElementById("zoomLink").value.trim();
+            const location = document.getElementById("location").value.trim();
+
+            // 1) 필수 필드로 기본 문서 데이터 구성
+            const docData = {
+                day,
+                startTime,
+                endTime,
+                subject
+            };
+
+            // 2) NoSQL 특징을 살려, 값이 채워진 선택 필드만 문서에 추가하여 전송
+            if (professor) docData.professor = professor;
+            if (zoomLink) docData.zoomLink = zoomLink;
+            if (location) docData.location = location;
+
+            try {
+                await addDoc(scheduleCol, docData);
+                form.reset();
+                document.getElementById("day").value = day; // 직관적인 연속 등록을 위해 요일 선택은 유지
+            } catch (error) {
+                console.error("수업 등록 실패: ", error);
+                alert("수업 정보를 등록하지 못했습니다. 콘솔 창을 확인하거나 Firestore 보안 규칙을 확인하세요.");
+            }
+        });
+
+        // 2. 실시간 데이터 수신 및 화면 렌더링
+        onSnapshot(scheduleCol, (snapshot) => {
+            // 모든 문서 데이터 수집
+            const schedules = [];
+            snapshot.forEach((doc) => {
+                schedules.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 화면 초기화 및 요일별 기둥 생성
+            board.innerHTML = "";
+            
+            DAYS.forEach(dayName => {
+                // 해당 요일의 수업들을 필터링하고 시작 시간 순서대로 정렬
+                const daySchedules = schedules
+                    .filter(s => s.day === dayName)
+                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+                // 요일 카드 생성
+                const dayColumn = document.createElement("div");
+                dayColumn.className = "bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col min-h-[250px]";
+                
+                // 요일 헤더
+                let headerColor = "text-slate-700 bg-slate-100";
+                if (dayName === "월") headerColor = "text-blue-700 bg-blue-50";
+                if (dayName === "금") headerColor = "text-red-700 bg-red-50";
+
+                dayColumn.innerHTML = `
+                    <div class="text-center font-bold py-1.5 px-3 rounded-lg ${headerColor} mb-3 text-sm">
+                        ${dayName}요일
+                    </div>
+                    <div class="space-y-3 flex-1" id="list-${dayName}"></div>
+                `;
+                
+                board.appendChild(dayColumn);
+                const listContainer = document.getElementById(`list-${dayName}`);
+
+                if (daySchedules.length === 0) {
+                    listContainer.innerHTML = `<p class="text-xs text-slate-300 text-center py-8">수업 없음</p>`;
+                    return;
+                }
+
+                // 요일 카드 안에 개별 수업 카드 채우기
+                daySchedules.forEach(item => {
+                    const card = document.createElement("div");
+                    card.className = "group relative p-3 rounded-lg border border-amber-100 bg-amber-50/40 hover:bg-amber-50 transition duration-150 text-xs";
+                    
+                    // NoSQL 기반의 다이내믹 정보 렌더링 (각 필드가 있는 경우만 HTML 조각 생성)
+                    const profHTML = item.professor ? `<div class="text-slate-500 font-medium">🧑‍🏫 ${item.professor}</div>` : '';
+                    const locHTML = item.location ? `<div class="text-slate-400 mt-0.5">📍 ${item.location}</div>` : '';
+                    const zoomHTML = item.zoomLink ? `
+                        <div class="mt-1.5">
+                            <a href="${item.zoomLink}" target="_blank" class="inline-flex items-center text-[10px] text-sky-600 hover:text-sky-800 font-semibold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">
+                                🔗 Zoom 링크
+                            </a>
+                        </div>` : '';
+
+                    card.innerHTML = `
+                        <!-- 삭제 버튼 (마우스 오버 시 우상단에 표시) -->
+                        <button class="delete-btn absolute top-2 right-2 text-slate-300 hover:text-red-500 transition" data-id="${item.id}" title="삭제">
+                            ❌
+                        </button>
+                        
+                        <!-- 수업 시간 -->
+                        <div class="text-[10px] font-bold text-amber-600 mb-1">${item.startTime} ~ ${item.endTime}</div>
+                        
+                        <!-- 과목명 -->
+                        <div class="font-bold text-slate-800 text-sm mb-1 break-words pr-4">${item.subject}</div>
+                        
+                        <!-- NoSQL 선택 필드 정보가 있다면 여기에 삽입 -->
+                        ${profHTML}
+                        ${locHTML}
+                        ${zoomHTML}
+                    `;
+
+                    listContainer.appendChild(card);
+                });
+            });
+
+            // 생성 완료 후 삭제 버튼들에 클릭 이벤트 바인딩
+            document.querySelectorAll(".delete-btn").forEach(button => {
+                button.addEventListener("click", async (e) => {
+                    const id = e.target.getAttribute("data-id");
+                    if (confirm("이 수업을 시간표에서 삭제하시겠습니까?")) {
+                        try {
+                            await deleteDoc(doc(db, "schedules", id));
+                        } catch (error) {
+                            console.error("삭제 실패: ", error);
+                            alert("수업 삭제에 실패했습니다.");
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

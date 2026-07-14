@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>내 소개 카드 웹앱</title>
+
+    <!-- Tailwind CSS (디자인용) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 프리텐다드 폰트 (깔끔한 한글 폰트) -->
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+
+    <!-- Firebase Compat Libraries (CDN 방식, import 방식 X) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* 카드 등장 애니메이션 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card-animate {
+            animation: fadeIn 0.5s ease-out forwards;
+            opacity: 0;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-800">
+
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4 py-5 sm:px-6 lg:px-8 flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-indigo-600 flex items-center gap-2">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z">
+                    </path>
+                </svg>
+                프로필 모아보기
+            </h1>
+            <p class="text-sm text-gray-500 hidden sm:block">Firestore 데이터 실시간 연동</p>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
+
+        <!-- 로딩 상태 -->
+        <div id="loading-state" class="flex flex-col items-center justify-center py-20">
+            <div class="animate-spin rounded-full h-14 w-14 border-4 border-indigo-100 border-t-indigo-600 mb-4"></div>
+            <p class="text-gray-500 font-medium">데이터를 불러오는 중입니다...</p>
+        </div>
+
+        <!-- 에러/안내 메시지 상태 -->
+        <div id="message-state"
+            class="hidden flex flex-col items-center justify-center py-16 bg-white rounded-2xl shadow-sm border border-gray-200">
+            <div id="message-icon" class="text-yellow-500 mb-4">
+                <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                    </path>
+                </svg>
+            </div>
+            <h2 id="message-title" class="text-xl font-bold text-gray-800 mb-2">안내</h2>
+            <p id="message-text" class="text-gray-600 text-center max-w-md"></p>
+        </div>
+
+        <!-- 프로필 카드 그리드 컨테이너 -->
+        <div id="profiles-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- 자바스크립트를 통해 여기에 카드들이 삽입됩니다 -->
+        </div>
+
+    </main>
+
+    <script>
+        // ============================================================================
+        // [필수] Firebase 설정값
+        // 아래의 "여기에_입력" 부분을 실제 프로젝트의 설정값으로 변경해주세요.
+        // ============================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBH9wy8EMJnc8VK2qKJAQhQcO5HCKOEawI",
+            authDomain: "vibe-coding-88fba.firebaseapp.com",
+            projectId: "vibe-coding-88fba",
+        };
+
+        // DOM 요소 가져오기
+        const container = document.getElementById('profiles-container');
+        const loadingState = document.getElementById('loading-state');
+        const messageState = document.getElementById('message-state');
+        const messageText = document.getElementById('message-text');
+        const messageTitle = document.getElementById('message-title');
+
+        // 상태 메시지 표시 함수
+        function showMessage(title, text, isError = true) {
+            loadingState.classList.add('hidden');
+            container.classList.add('hidden');
+            messageState.classList.remove('hidden');
+            messageState.classList.add('flex');
+            messageTitle.textContent = title;
+            messageText.innerHTML = text;
+
+            if (isError) {
+                document.getElementById('message-icon').classList.replace('text-yellow-500', 'text-red-500');
+            }
+        }
+
+        // ============================================================================
+        // 앱 초기화 및 데이터 로드
+        // ============================================================================
+        async function initApp() {
+            // 설정값이 입력되지 않은 경우 안내 표시
+            if (firebaseConfig.apiKey === "여기에_입력") {
+                showMessage(
+                    "Firebase 설정 필요",
+                    "코드 상단의 <code>firebaseConfig</code> 변수에<br>실제 Firebase 프로젝트 설정값을 입력해주세요.",
+                    false
+                );
+                return;
+            }
+
+            try {
+                // Firebase 초기화 (CDN Compat 방식)
+                firebase.initializeApp(firebaseConfig);
+                const db = firebase.firestore();
+
+                // 'profiles' 컬렉션 데이터 가져오기
+                const snapshot = await db.collection('profiles').get();
+
+                loadingState.classList.add('hidden');
+
+                if (snapshot.empty) {
+                    showMessage(
+                        "데이터가 없습니다",
+                        "Firestore의 <code>profiles</code> 컬렉션에 문서가 없습니다.<br>데이터를 추가해주세요.",
+                        false
+                    );
+                    return;
+                }
+
+                // 지연 시간을 활용하여 카드가 순차적으로 나타나게 하는 애니메이션 인덱스
+                let delayIndex = 0;
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    renderCard(data, delayIndex);
+                    delayIndex++;
+                });
+
+            } catch (error) {
+                console.error("Firebase Error:", error);
+
+                let errorMsg = "데이터를 불러오는 중 오류가 발생했습니다.<br>" + error.message;
+                // 보안 규칙 관련 에러 안내
+                if (error.code === 'permission-denied') {
+                    errorMsg = "접근 권한이 없습니다.<br>Firestore 보안 규칙을 확인해주세요.<br><span class='text-sm text-gray-400'>(예: allow read: if true;)</span>";
+                }
+
+                showMessage("오류 발생", errorMsg, true);
+            }
+        }
+
+        // ============================================================================
+        // 카드 UI 생성 함수
+        // ============================================================================
+        function renderCard(data, delayIndex) {
+            // 필드값이 없을 경우의 기본값 설정
+            const name = data.name || "이름 없음";
+            const major = data.major || "전공 미상";
+            const hobby = data.hobby || "취미 없음";
+
+            // 카드 요소 생성
+            const card = document.createElement('div');
+            card.className = `bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100 flex flex-col items-center text-center card-animate`;
+            card.style.animationDelay = `${delayIndex * 0.1}s`;
+
+            // 카드 내부 HTML 구조 (Tailwind 유틸리티 클래스 활용)
+            card.innerHTML = `
+                <!-- 프로필 아바타 (이름의 첫 글자) -->
+                <div class="w-20 h-20 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-full flex items-center justify-center mb-5 text-white shadow-inner">
+                    <span class="text-3xl font-bold">${name.charAt(0)}</span>
+                </div>
+                
+                <!-- 이름 -->
+                <h2 class="text-xl font-bold text-gray-800 mb-2">${name}</h2>
+                
+                <!-- 전공 뱃지 -->
+                <div class="inline-flex items-center px-4 py-1.5 rounded-full bg-indigo-50 text-indigo-600 text-sm font-semibold mb-6">
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 14l9-5-9-5-9 5 9 5z"></path><path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"></path><path stroke-linecap="round

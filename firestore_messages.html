@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 메시지 보드</title>
+
+  <!-- Firebase CDN (Compat 버전: 단일 HTML에서 간단히 사용) -->
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Pretendard, "Noto Sans KR", system-ui, -apple-system, sans-serif;
+      background: #f4f7fb;
+      color: #172033;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      padding: 48px 18px;
+      background:
+        radial-gradient(circle at 10% 0%, #dceaff 0, transparent 32rem),
+        #f4f7fb;
+    }
+
+    main { width: min(720px, 100%); margin: 0 auto; }
+
+    header { margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 5vw, 2.6rem); }
+    header p { margin: 0; color: #657089; }
+
+    .panel {
+      padding: 24px;
+      border: 1px solid #e0e6f0;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 18px 45px rgba(56, 75, 111, .1);
+    }
+
+    form { display: grid; gap: 16px; }
+    label { display: grid; gap: 7px; font-size: .92rem; font-weight: 700; }
+
+    input, textarea {
+      width: 100%;
+      border: 1px solid #cad3e2;
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: white;
+      color: inherit;
+      font: inherit;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    input:focus, textarea:focus {
+      border-color: #4f6bed;
+      box-shadow: 0 0 0 4px rgba(79, 107, 237, .14);
+    }
+
+    textarea { min-height: 110px; resize: vertical; }
+
+    button {
+      justify-self: end;
+      min-width: 110px;
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 20px;
+      background: #3f5de5;
+      color: white;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s, background .15s;
+    }
+
+    button:hover { background: #304ac4; transform: translateY(-1px); }
+    button:disabled { cursor: wait; opacity: .65; transform: none; }
+
+    .status { min-height: 22px; margin: 12px 0 0; font-size: .9rem; color: #5e6a83; }
+    .status.error { color: #c62f43; }
+    .status.success { color: #18794e; }
+
+    .list-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 34px 2px 14px;
+    }
+
+    h2 { margin: 0; font-size: 1.25rem; }
+    #count { color: #72809b; font-size: .9rem; }
+    #message-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+
+    .message {
+      padding: 18px 20px;
+      border: 1px solid #e0e6f0;
+      border-radius: 16px;
+      background: white;
+      box-shadow: 0 8px 24px rgba(56, 75, 111, .06);
+    }
+
+    .message-top { display: flex; justify-content: space-between; gap: 12px; }
+    .name { font-weight: 800; }
+    time { flex: none; color: #8792a8; font-size: .8rem; }
+    .text { margin: 9px 0 0; color: #465168; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .empty { padding: 36px 20px; text-align: center; color: #77839b; }
+
+    @media (max-width: 520px) {
+      body { padding: 28px 14px; }
+      .panel { padding: 18px; border-radius: 16px; }
+      button { width: 100%; }
+      .message-top { display: grid; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>실시간 메시지 보드</h1>
+      <p>하고 싶은 말을 남기면 모든 사용자에게 바로 표시됩니다.</p>
+    </header>
+
+    <section class="panel" aria-labelledby="form-title">
+      <form id="message-form">
+        <label>
+          이름
+          <input id="name" name="name" type="text" maxlength="40" placeholder="이름을 입력하세요" required>
+        </label>
+        <label>
+          하고 싶은 말
+          <textarea id="text" name="text" maxlength="500" placeholder="메시지를 입력하세요" required></textarea>
+        </label>
+        <button id="save-button" type="submit">저장</button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <div class="list-heading">
+      <h2>메시지 목록</h2>
+      <span id="count"></span>
+    </div>
+    <ul id="message-list" aria-live="polite">
+      <li class="empty">메시지를 불러오는 중입니다…</li>
+    </ul>
+  </main>
+
+  <script>
+    // Firebase 프로젝트 설정 (firebase_message2.html의 값을 반영)
+    const firebaseConfig = {
+      apiKey: "AIzaSyB13nMtW5AttNKLytoaYRZK9M3yQZvc3bQ",
+      authDomain: "vibe-coding-d481f.firebaseapp.com",
+      projectId: "vibe-coding-d481f",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const messagesRef = db.collection("messages");
+
+    const form = document.getElementById("message-form");
+    const nameInput = document.getElementById("name");
+    const textInput = document.getElementById("text");
+    const saveButton = document.getElementById("save-button");
+    const status = document.getElementById("status");
+    const list = document.getElementById("message-list");
+    const count = document.getElementById("count");
+
+    function setStatus(message, type = "") {
+      status.textContent = message;
+      status.className = `status ${type}`;
+    }
+
+    function formatDate(timestamp) {
+      if (!timestamp || typeof timestamp.toDate !== "function") return "방금 전";
+      return new Intl.DateTimeFormat("ko-KR", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(timestamp.toDate());
+    }
+
+    function renderMessages(snapshot) {
+      list.replaceChildren();
+      count.textContent = `${snapshot.size}개`;
+
+      if (snapshot.empty) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "아직 등록된 메시지가 없습니다.";
+        list.appendChild(empty);
+        return;
+      }
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const item = document.createElement("li");
+        item.className = "message";
+
+        const top = document.createElement("div");
+        top.className = "message-top";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = data.name || "이름 없음";
+        const time = document.createElement("time");
+        time.textContent = formatDate(data.createdAt);
+        top.append(name, time);
+
+        const text = document.createElement("p");
+        text.className = "text";
+        text.textContent = data.text || "";
+        item.append(top, text);
+        list.appendChild(item);
+      });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const name = nameInput.value.trim();
+      const text = textInput.value.trim();
+      if (!name || !text) return setStatus("이름과 메시지를 모두 입력해 주세요.", "error");
+
+      saveButton.disabled = true;
+      saveButton.textContent = "저장 중…";
+      setStatus("");
+
+      try {
+        await messagesRef.add({
+          name,
+          text,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        form.reset();
+        nameInput.focus();
+        setStatus("메시지가 저장되었습니다.", "success");
+      } catch (error) {
+        console.error(error);
+        setStatus("저장하지 못했습니다. Firebase 설정과 Firestore 보안 규칙을 확인해 주세요.", "error");
+      } finally {
+        saveButton.disabled = false;
+        saveButton.textContent = "저장";
+      }
+    });
+
+    // onSnapshot이 데이터 변경을 감지해 목록을 실시간 갱신합니다.
+    messagesRef.orderBy("createdAt", "desc").onSnapshot(
+      renderMessages,
+      (error) => {
+        console.error(error);
+        list.innerHTML = '<li class="empty">목록을 불러오지 못했습니다.</li>';
+        count.textContent = "";
+        setStatus("Firebase 설정과 Firestore 보안 규칙을 확인해 주세요.", "error");
+      }
+    );
+  </script>
+</body>
+</html>

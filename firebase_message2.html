@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firestore 실시간 방명록</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 12px;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        textarea {
+            resize: none;
+            height: 80px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .list-container {
+            margin-top: 24px;
+            border-top: 2px solid #eee;
+            padding-top: 16px;
+        }
+        .message-item {
+            background: #f1f3f5;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .message-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #1a73e8;
+            margin-bottom: 4px;
+        }
+        .message-text {
+            font-size: 15px;
+            white-space: pre-wrap;
+        }
+        .message-date {
+            font-size: 11px;
+            color: #888;
+            text-align: right;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>방명록 작성하기</h2>
+    
+    <!-- 입력 폼 -->
+    <form id="messageForm">
+        <div class="form-group">
+            <input type="text" id="nameInput" placeholder="이름을 입력하세요" required>
+        </div>
+        <div class="form-group">
+            <textarea id="textInput" placeholder="하고 싶은 말을 적어주세요" required></textarea>
+        </div>
+        <button type="submit">저장하기</button>
+    </form>
+
+    <!-- 실시간 목록 -->
+    <div class="list-container">
+        <h3>전체 메시지 목록</h3>
+        <div id="messageList" style="margin-top: 12px;">
+            <!-- 데이터가 여기에 동적으로 추가됩니다 -->
+        </div>
+    </div>
+</div>
+
+<!-- Firebase SDK 로드 (모듈 방식) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+    // 1. Firebase 설정값
+    const firebaseConfig = {
+                  apiKey: "AIzaSyB13nMtW5AttNKLytoaYRZK9M3yQZvc3bQ",
+                authDomain: "vibe-coding-d481f.firebaseapp.com",
+                projectId: "vibe-coding-d481f",
+    };
+
+    // 2. Firebase 초기화
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const messagesCol = collection(db, "messages");
+
+    // DOM 요소 가져오기
+    const messageForm = document.getElementById("messageForm");
+    const nameInput = document.getElementById("nameInput");
+    const textInput = document.getElementById("textInput");
+    const messageList = document.getElementById("messageList");
+
+    // 3. 데이터 저장 (Create)
+    messageForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const name = nameInput.value.trim();
+        const text = textInput.value.trim();
+
+        try {
+            await addDoc(messagesCol, {
+                name: name,
+                text: text,
+                createdAt: serverTimestamp() // 등록 시간순 정렬을 위해 서버 타임스탬프 사용
+            });
+            
+            // 입력창 초기화
+            messageForm.reset();
+        } catch (error) {
+            console.error("데이터 저장 실패:", error);
+            alert("저장 중 오류가 발생했습니다.");
+        }
+    });
+
+    // 4. 실시간 데이터 불러오기 (Read)
+    // 최신 글이 가장 위로 오도록 생성일자(createdAt) 기준 내림차순(desc) 정렬
+    const q = query(messagesCol, orderBy("createdAt", "desc"));
+
+    onSnapshot(q, (snapshot) => {
+        messageList.innerHTML = ""; // 기존 목록 비우기
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            
+            // 타임스탬프 변환 처리 (서버에 기록되기 전 잠깐 null일 수 있음 처리)
+            const dateObj = data.createdAt ? data.createdAt.toDate() : new Date();
+            const formattedDate = dateObj.toLocaleString();
+
+            // 아이템 HTML 생성
+            const item = document.createElement("div");
+            item.className = "message-item";
+            item.innerHTML = `
+                <div class="message-name">${escapeHtml(data.name)}</div>
+                <div class="message-text">${escapeHtml(data.text)}</div>
+                <div class="message-date">${formattedDate}</div>
+            `;
+            
+            messageList.appendChild(item);
+        });
+    });
+
+    // XSS 방지를 위한 텍스트 이스케이프 함수
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>

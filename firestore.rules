@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cafeMenus/{menuId} {
+      allow read: if true;
+      allow create: if validMenu(request.resource.data);
+      allow delete: if true;
+      allow update: if false;
+    }
+
+    match /cafeSales/{saleId} {
+      allow read: if true;
+      allow create: if validSale(request.resource.data);
+      allow delete: if true;
+      allow update: if false;
+    }
+
+    function validMenu(data) {
+      return data.keys().hasOnly(['name', 'price', 'discount', 'createdAt'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 50
+        && data.price is number
+        && data.price >= 0
+        && data.discount is number
+        && data.discount >= 0
+        && data.discount <= 100;
+    }
+
+    function validSale(data) {
+      return data.keys().hasOnly([
+          'menuId', 'menu', 'originalPrice', 'discount',
+          'price', 'quantity', 'total', 'createdAt'
+        ])
+        && data.menuId is string
+        && data.menu is string
+        && data.menu.size() > 0
+        && data.originalPrice is number
+        && data.discount is number
+        && data.price is number
+        && data.quantity is int
+        && data.quantity > 0
+        && data.quantity <= 99
+        && data.total == data.price * data.quantity;
+    }
+  }
+}
