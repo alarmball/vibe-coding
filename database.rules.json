@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "posts": {
+      ".read": true,
+      "$postId": {
+        ".write": "auth != null && !data.exists() && newData.child('hostId').val() == auth.uid",
+        ".validate": "newData.hasChildren(['title','date','time','location','pace','capacity','hostId','hostName','createdAt']) && newData.child('title').isString() && newData.child('capacity').isNumber() && newData.child('capacity').val() >= 2 && newData.child('capacity').val() <= 100"
+      }
+    },
+    "postDetails": {
+      "$postId": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('posts').child($postId).child('hostId').val() == auth.uid",
+        ".validate": "newData.hasChildren(['content']) && newData.child('content').isString() && newData.child('content').val().length <= 1000"
+      }
+    },
+    "participants": {
+      "$postId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid == $uid",
+          ".validate": "!newData.exists() || (newData.hasChildren(['name','joinedAt']) && newData.child('name').isString())"
+        }
+      }
+    },
+    "chats": {
+      "$postId": {
+        ".read": "auth != null && root.child('participants').child($postId).child(auth.uid).exists()",
+        "$messageId": {
+          ".write": "auth != null && !data.exists() && root.child('participants').child($postId).child(auth.uid).exists() && newData.child('uid').val() == auth.uid",
+          ".validate": "newData.hasChildren(['uid','name','text','createdAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300"
+        }
+      }
+    }
+  }
+}
