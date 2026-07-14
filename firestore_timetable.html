@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>나의 주간 시간표</title>
+
+  <!-- Firebase CDN (Compat SDK) -->
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root {
+      font-family: Pretendard, "Noto Sans KR", system-ui, -apple-system, sans-serif;
+      color: #1d2939;
+      background: #f4f7fb;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    body { min-width: 320px; min-height: 100vh; margin: 0; padding: 42px 18px; }
+    button, input, select { font: inherit; }
+    main { width: min(1180px, 100%); margin: 0 auto; }
+    header { margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.04em; }
+    header p { margin: 0; color: #667085; }
+
+    .panel {
+      padding: 22px;
+      border: 1px solid #e3e8ef;
+      border-radius: 18px;
+      background: white;
+      box-shadow: 0 14px 36px rgba(37, 50, 75, .08);
+    }
+
+    form { display: grid; grid-template-columns: .8fr .8fr 1.4fr 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
+    label { display: grid; gap: 7px; color: #475467; font-size: .82rem; font-weight: 750; }
+    input, select {
+      width: 100%; min-height: 44px; padding: 10px 12px;
+      border: 1px solid #ccd5e1; border-radius: 10px; outline: none; background: white; color: #1d2939;
+    }
+    input:focus, select:focus { border-color: #6d5ce7; box-shadow: 0 0 0 4px rgba(109, 92, 231, .12); }
+    .add-button {
+      min-height: 44px; padding: 10px 19px; border: 0; border-radius: 10px;
+      background: #6454d7; color: white; font-weight: 800; cursor: pointer; white-space: nowrap;
+    }
+    .add-button:hover { background: #5242bd; }
+    button:disabled { opacity: .55; cursor: wait; }
+    #status { min-height: 21px; margin: 12px 2px 0; color: #667085; font-size: .88rem; }
+    #status.success { color: #18794e; }
+    #status.error { color: #c32f45; }
+
+    .section-title { display: flex; justify-content: space-between; align-items: center; margin: 34px 2px 14px; }
+    h2 { margin: 0; font-size: 1.25rem; }
+    #total { color: #667085; font-size: .9rem; }
+    .week { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 14px; overflow-x: auto; padding: 2px 2px 14px; }
+    .day { min-height: 250px; padding: 14px; border: 1px solid #e1e7ef; border-radius: 16px; background: #f9fafc; }
+    .day h3 { margin: 0 0 12px; padding-bottom: 10px; border-bottom: 2px solid var(--accent); color: var(--accent); font-size: 1rem; }
+    .day-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .class-card { position: relative; padding: 13px; border-left: 4px solid var(--accent); border-radius: 10px; background: white; box-shadow: 0 4px 14px rgba(29, 41, 57, .07); }
+    .class-time { color: var(--accent); font-size: .78rem; font-weight: 850; }
+    .class-subject { margin: 4px 26px 7px 0; font-weight: 850; overflow-wrap: anywhere; }
+    .details { display: grid; gap: 4px; color: #667085; font-size: .78rem; }
+    .details a { color: #4e46b4; overflow-wrap: anywhere; }
+    .delete-button { position: absolute; top: 10px; right: 9px; width: 27px; height: 27px; padding: 0; border: 0; border-radius: 7px; background: #f2f4f7; color: #667085; cursor: pointer; }
+    .delete-button:hover { background: #fee4e7; color: #b42336; }
+    .empty { padding: 24px 4px; color: #98a2b3; font-size: .82rem; text-align: center; }
+
+    @media (max-width: 1000px) { form { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 620px) {
+      body { padding: 28px 13px; }
+      .panel { padding: 16px; }
+      form { grid-template-columns: 1fr 1fr; }
+      form label:nth-child(n+3) { grid-column: 1 / -1; }
+      .add-button { grid-column: 1 / -1; }
+      .week { grid-template-columns: repeat(5, 82vw); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>나의 주간 시간표</h1>
+      <p>수업을 추가하면 연결된 모든 화면에 실시간으로 반영됩니다.</p>
+    </header>
+
+    <section class="panel" aria-label="수업 추가">
+      <form id="class-form">
+        <label>요일
+          <select id="day" required>
+            <option value="월">월요일</option><option value="화">화요일</option>
+            <option value="수">수요일</option><option value="목">목요일</option>
+            <option value="금">금요일</option>
+          </select>
+        </label>
+        <label>시간
+          <input id="time" type="time" required>
+        </label>
+        <label>과목명
+          <input id="subject" type="text" maxlength="60" placeholder="예: 데이터베이스" required>
+        </label>
+        <label>교수명 <span>(선택)</span>
+          <input id="professor" type="text" maxlength="40" placeholder="예: 김교수">
+        </label>
+        <label>장소 <span>(선택)</span>
+          <input id="location" type="text" maxlength="60" placeholder="예: 공학관 301호">
+        </label>
+        <label>Zoom 링크 <span>(선택)</span>
+          <input id="zoomLink" type="url" maxlength="500" placeholder="https://…">
+        </label>
+        <button id="add-button" class="add-button" type="submit">수업 추가</button>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <div class="section-title"><h2>이번 주 수업</h2><span id="total"></span></div>
+    <section id="week" class="week" aria-label="요일별 시간표"></section>
+  </main>
+
+  <script>
+    // Firebase Console > 프로젝트 설정 > 내 앱에서 아래 값을 교체하세요.
+    const firebaseConfig = {
+      apiKey: "여기에*입력",
+      authDomain: "여기에*입력",
+      projectId: "여기에_입력",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const classesRef = db.collection("classes");
+
+    const DAYS = ["월", "화", "수", "목", "금"];
+    const COLORS = ["#5b55c7", "#2878b5", "#18794e", "#b54708", "#b42336"];
+    const form = document.getElementById("class-form");
+    const addButton = document.getElementById("add-button");
+    const statusElement = document.getElementById("status");
+    const weekElement = document.getElementById("week");
+    const totalElement = document.getElementById("total");
+
+    function setStatus(message, type = "") {
+      statusElement.textContent = message;
+      statusElement.className = type;
+    }
+
+    function createTextDetail(icon, value) {
+      const detail = document.createElement("span");
+      detail.textContent = `${icon} ${value}`;
+      return detail;
+    }
+
+    function createClassCard(doc) {
+      const data = doc.data();
+      const card = document.createElement("li");
+      card.className = "class-card";
+
+      const time = document.createElement("div");
+      time.className = "class-time";
+      time.textContent = data.time || "시간 미정";
+      const subject = document.createElement("div");
+      subject.className = "class-subject";
+      subject.textContent = data.subject || "과목명 없음";
+      const details = document.createElement("div");
+      details.className = "details";
+
+      // 문서마다 존재하는 선택 필드만 화면에 렌더링합니다.
+      if (data.professor) details.appendChild(createTextDetail("👤", data.professor));
+      if (data.location) details.appendChild(createTextDetail("📍", data.location));
+      if (data.zoomLink) {
+        const link = document.createElement("a");
+        link.href = data.zoomLink;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "🔗 Zoom 참여";
+        details.appendChild(link);
+      }
+
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "delete-button";
+      deleteButton.type = "button";
+      deleteButton.textContent = "×";
+      deleteButton.title = `${data.subject || "수업"} 삭제`;
+      deleteButton.setAttribute("aria-label", `${data.subject || "수업"} 삭제`);
+      deleteButton.addEventListener("click", async () => {
+        if (!confirm(`‘${data.subject || "수업"}’을(를) 삭제할까요?`)) return;
+        deleteButton.disabled = true;
+        try {
+          await classesRef.doc(doc.id).delete();
+          setStatus("수업을 삭제했습니다.", "success");
+        } catch (error) {
+          console.error(error);
+          deleteButton.disabled = false;
+          setStatus("삭제하지 못했습니다. Firestore 권한을 확인해 주세요.", "error");
+        }
+      });
+
+      card.append(time, subject, details, deleteButton);
+      return card;
+    }
+
+    function render(snapshot) {
+      const classesByDay = Object.fromEntries(DAYS.map(day => [day, []]));
+      snapshot.forEach(doc => {
+        const day = doc.data().day;
+        if (classesByDay[day]) classesByDay[day].push(doc);
+      });
+      Object.values(classesByDay).forEach(items => items.sort((a, b) =>
+        (a.data().time || "99:99").localeCompare(b.data().time || "99:99")
+      ));
+
+      weekElement.replaceChildren();
+      DAYS.forEach((day, index) => {
+        const column = document.createElement("article");
+        column.className = "day";
+        column.style.setProperty("--accent", COLORS[index]);
+        const heading = document.createElement("h3");
+        heading.textContent = `${day}요일`;
+        const list = document.createElement("ul");
+        list.className = "day-list";
+        if (classesByDay[day].length) {
+          classesByDay[day].forEach(doc => list.appendChild(createClassCard(doc)));
+        } else {
+          const empty = document.createElement("li");
+          empty.className = "empty";
+          empty.textContent = "등록된 수업 없음";
+          list.appendChild(empty);
+        }
+        column.append(heading, list);
+        weekElement.appendChild(column);
+      });
+      totalElement.textContent = `총 ${snapshot.size}개`;
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const subject = document.getElementById("subject").value.trim();
+      const time = document.getElementById("time").value;
+      const day = document.getElementById("day").value;
+      if (!subject || !time || !DAYS.includes(day)) return setStatus("필수 항목을 입력해 주세요.", "error");
+
+      // 필수 필드로 시작하고 값이 있는 선택 필드만 동적으로 추가합니다.
+      const classData = {
+        day,
+        time,
+        subject,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      const optionalFields = {
+        professor: document.getElementById("professor").value.trim(),
+        location: document.getElementById("location").value.trim(),
+        zoomLink: document.getElementById("zoomLink").value.trim()
+      };
+      Object.entries(optionalFields).forEach(([key, value]) => {
+        if (value) classData[key] = value;
+      });
+
+      addButton.disabled = true;
+      addButton.textContent = "추가 중…";
+      setStatus("");
+      try {
+        await classesRef.add(classData);
+        form.reset();
+        setStatus("수업을 추가했습니다.", "success");
+        document.getElementById("subject").focus();
+      } catch (error) {
+        console.error(error);
+        setStatus("추가하지 못했습니다. Firebase 설정과 Firestore 권한을 확인해 주세요.", "error");
+      } finally {
+        addButton.disabled = false;
+        addButton.textContent = "수업 추가";
+      }
+    });
+
+    classesRef.onSnapshot(render, error => {
+      console.error(error);
+      setStatus("시간표를 불러오지 못했습니다. Firebase 설정과 Firestore 권한을 확인해 주세요.", "error");
+      weekElement.innerHTML = '<div class="panel">데이터를 불러올 수 없습니다.</div>';
+    });
+  </script>
+</body>
+</html>
