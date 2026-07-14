@@ -27,9 +27,9 @@
     },
     "chats": {
       "$postId": {
-        ".read": "auth != null && root.child('participants').child($postId).child(auth.uid).exists()",
+        ".read": "auth != null",
         "$messageId": {
-          ".write": "auth != null && !data.exists() && root.child('participants').child($postId).child(auth.uid).exists() && newData.child('uid').val() == auth.uid",
+          ".write": "auth != null && !data.exists() && newData.child('uid').val() == auth.uid",
           ".validate": "newData.hasChildren(['uid','name','text','createdAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300"
         }
       }
